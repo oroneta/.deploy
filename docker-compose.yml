@@ -1,0 +1,213 @@
+version: "3.8"
+services:
+    # ------------------------------------ FRONT --------------------------------------------
+    oroneta.drone-front.db:
+        image: mysql
+        container_name: oroneta.drone-front.db
+        restart: unless-stopped
+        ports: 
+            - "3306:3306"
+        command: --default-authentication-plugin=mysql_native_password
+        environment:
+            MYSQL_DATABASE: ${DB_NAME}
+            MYSQL_USER: ${DB_USER}
+            MYSQL_PASSWORD: ${DB_PASS}
+            MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS}
+        volumes:
+            - /etc/timezone:/etc/timezone:ro
+            - ./drone-front/dump:/docker-entrypoint-initdb.d
+            - ./drone-front/conf:/etc/mysql/conf.d
+            - oroneta.drone-front.mysql:/var/lib/mysql
+
+        # network_mode: "host"
+
+
+    oroneta.drone-front.www:
+        container_name: oroneta.drone-front.www
+        restart: unless-stopped
+        build: 
+            context: ./drone-front/
+            dockerfile: ./docker/www/${SERVER_ENV}/Dockerfile
+        ports: 
+            - "80:3000"
+        env_file:
+            - ./drone-front/docker/.env
+        stdin_open: true
+        depends_on:
+            - oroneta.drone-front.db
+        volumes:
+            - ./drone-front/www:/var/www/html
+
+        # network_mode: "host"
+
+    oroneta.drone-front.phpmyadmin:
+        # image: phpmyadmin/phpmyadmin
+        image: linuxserver/phpmyadmin:latest
+        restart: unless-stopped
+        container_name: oroneta.drone-front.phpmyadmin
+        depends_on: 
+            - oroneta.drone-front.db
+        ports:
+            - "8082:80"
+        environment:
+            # PMA_HOST: ${DB_HOST}
+            PMA_HOST: ${DB_HOST}
+            # PMA_PORT: ${DB_PORT}
+
+        # network_mode: "host"
+
+    # ------------------------------------ MODULE --------------------------------------------
+
+    oroneta.drone-module.drone-api:
+        build:
+            context: ./drone-module/
+            dockerfile: ./docker/drone-api/Dockerfile
+        container_name: oroneta.drone-module.drone-api
+        env_file:
+            - ./drone-module/docker/.env
+        restart: unless-stopped
+        ports:
+            - "60001:60001"
+        depends_on:
+            - oroneta.drone-module.drone-mongo
+        volumes:
+            - oroneta.drone-module.drone-api:/opt/drone-api/logs
+        # network_mode: "host"
+    
+    oroneta.drone-module.drone-manager:
+        build:
+            context: ./drone-module
+            dockerfile: ./docker/drone-manager/Pruebas.Dockerfile
+        container_name: oroneta.drone-module.drone-manager
+        env_file:
+            - ./drone-module/docker/.env
+        restart: unless-stopped
+        ports:
+            - "60002:60002/udp"
+            - "14540:14540/udp"
+        depends_on:
+            - oroneta.drone-module.drone-mongo
+            - oroneta.drone-module.drone-api
+        volumes:
+            - oroneta.drone-module.drone-manager:/opt/drone-manager/var
+        # network_mode: "host"
+
+    oroneta.drone-module.drone-ai:
+        build:
+            context: ./drone-module
+            dockerfile: ./docker/drone-ai/Dockerfile
+        container_name: oroneta.drone-module.drone-ai
+        restart: unless-stopped
+        env_file:
+            - ./drone-module/docker/.env
+        ports:
+            - "60003:60003"
+        volumes:
+            - oroneta.drone-module.drone-ai:/opt/drone-ai/var
+        depends_on:
+            - oroneta.drone-module.drone-mongo
+        # network_mode: "host"
+
+    oroneta.drone-module.drone-mongo:
+        image: mongo:4.4.6
+        # image: mongo:7.0.6
+        restart: unless-stopped
+        container_name: oroneta.drone-module.drone-mongo
+        ports: 
+            - "27017:27017"
+        environment:
+            MONGO_INITDB_ROOT_USERNAME: ${MONGO_DBUSER}
+            MONGO_INITDB_ROOT_PASSWORD: ${MONGO_DBPASS}
+            MONGO_INITDB_DATABASE: ${MONGO_DBNAME}
+        volumes:
+            - oroneta.drone-module.drone-mongo:/data/db/
+            - /etc/timezone:/etc/timezone:ro
+        # network_mode: "host"
+
+
+    oroneta.drone-module.drone-mongo-express:
+        image: mongo-express:latest
+        restart: unless-stopped
+        container_name: oroneta.drone-module.drone-mongo-express
+        ports:
+            - "8081:8081"
+        depends_on:
+            - oroneta.drone-module.drone-mongo
+        environment:
+            ME_CONFIG_BASICAUTH_USERNAME: ${MEXPRESS_USER}
+            ME_CONFIG_BASICAUTH_PASSWORD: ${MEXPRESS_PASS}
+            ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_DBUSER}
+            ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_DBPASS}
+            ME_CONFIG_MONGODB_URL: mongodb://${MONGO_DBUSER}:${MONGO_DBPASS}@${MONGO_DBSEVR}:${MONGO_DBPORT}/?authMechanism=DEFAULT
+        # network_mode: "host"
+
+    # ------------------------------------ CORE --------------------------------------------
+
+    oroneta.core-system.postgres:
+        container_name: oroneta.core-system.postgres
+        image: postgres:14-alpine
+        restart: unless-stopped
+        ports:
+            - 5432:5432
+        volumes:
+            - postgres:/var/lib/postgresql/data
+            - ./core-system/migration/init.sql:/docker-entrypoint-initdb.d/init.sql
+            # Dev
+            - ./core-system/migration/demo.sql:/docker-entrypoint-initdb.d/demo.sql
+        environment:
+            POSTGRES_PASSWORD: ${PG_DBPASS}
+            POSTGRES_USER: ${PG_DBUSER}
+            POSTGRES_DB: ${PG_DBNAME}
+        # network_mode: "host"
+
+
+    oroneta.core-system.server:
+        container_name: oroneta.core-system.server
+        restart: unless-stopped
+        build:
+            context: ./core-system
+            dockerfile: ./docker/server/Dockerfile
+        env_file:
+            - ./core-system/docker/.env
+        ports:
+            - 60000:60000
+        depends_on:
+            - oroneta.core-system.postgres
+        # network_mode: "host"
+      
+
+
+
+    oroneta.core-system.adminer:
+        container_name: oroneta.core-system.adminer
+        image: adminer
+        restart: unless-stopped
+        depends_on:
+            - oroneta.core-system.postgres
+        ports:
+            - 8080:8080
+        environment:
+            ADMINER_DEFAULT_SERVER: ${PG_DBHOST}
+        # network_mode: "host"
+
+
+
+volumes:
+    # Front
+    oroneta.drone-front.mysql:
+        name: oroneta.drone-front.mysql
+
+    # module
+    oroneta.drone-module.drone-api:
+        name: oroneta.drone-module.drone-api
+    oroneta.drone-module.drone-ai:
+        name: oroneta.drone-module.drone-ai
+    oroneta.drone-module.drone-manager:
+        name: oroneta.drone-module.drone-manager
+    oroneta.drone-module.drone-mongo:
+        name: oroneta.drone-module.drone-mongo
+
+    # core
+    postgres:
+        name: postgres
+
