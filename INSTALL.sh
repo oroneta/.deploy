@@ -5,7 +5,7 @@ git clone https://github.com/oroneta/drone-module.git
 git clone https://github.com/oroneta/core-system.git
 
 
-chmod +x RUN.sh
+chmod +x DEPLOY.sh
 
 
-./RUN.sh
+./DEPLOY.sh
